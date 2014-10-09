@@ -91,7 +91,6 @@ public class Coverflow<T extends Adapter> extends AdapterView<T> {
     Context context = getContext();
 
     gestureDetector = new GestureDetector(context, new CustomGestureDetector());
-
     scroller = new Scroller(context);
     centerScroller = new Scroller(context, new BounceInterpolator());
   }
@@ -143,7 +142,7 @@ public class Coverflow<T extends Adapter> extends AdapterView<T> {
     return shouldOverrideTouchCapture;
   }
 
-  public boolean isVertical() {
+  private boolean isVertical() {
     return orientation == ORIENTATION_VERTICAL;
   }
 
