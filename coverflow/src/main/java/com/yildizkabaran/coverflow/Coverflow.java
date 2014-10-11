@@ -8,14 +8,15 @@ import android.view.GestureDetector;
 import android.view.GestureDetector.OnGestureListener;
 import android.view.MotionEvent;
 import android.view.View;
-import android.view.animation.BounceInterpolator;
+import android.view.ViewGroup;
+import android.view.animation.OvershootInterpolator;
 import android.widget.Adapter;
-import android.widget.AdapterView;
 import android.widget.Scroller;
 
-public class Coverflow<T extends Adapter> extends AdapterView<T> {
+public class Coverflow extends ViewGroup {
 
-  static final String TAG = "Coverflow";
+  private static final String TAG = "Coverflow";
+  private static final float SCROLL_SPEED = 200F;
 
   public Coverflow(Context context, AttributeSet attrs, int defStyleAttr) {
     super(context, attrs, defStyleAttr);
@@ -39,10 +40,36 @@ public class Coverflow<T extends Adapter> extends AdapterView<T> {
     touchBinder.setParentView(getParent());
   }
 
+  @Override
+  protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+    super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+
+    int numChildren = getChildCount();
+    for(int i=0; i<numChildren; ++i){
+      View v = getChildAt(i);
+      measureChild(v, widthMeasureSpec, heightMeasureSpec);
+    }
+  }
+
+  @Override
+  protected void onLayout(boolean changed, int l, int t, int r, int b) {
+    int centerX = (r - l) / 2;
+    int centerY = (b - t) / 2;
+    int numChildren = getChildCount();
+    for(int i=0; i<numChildren; ++i){
+      View v = getChildAt(i);
+      int childHalfWidth = v.getMeasuredWidth() / 2;
+      int childHalfHeight = v.getMeasuredHeight() / 2;
+      v.layout(centerX - childHalfWidth, centerY - childHalfHeight,
+          centerX + childHalfWidth, centerY + childHalfHeight);
+    }
+  }
+
   private GestureDetector gestureDetector;
   private Scroller scroller;
   private Scroller centerScroller;
   private EventBinder touchBinder = new EventBinder(EventBinder.DIRECTION_X);
+  private CoverflowItemClickListener itemClickListener;
 
   private Runnable scrollRunner = new Runnable() {
     @Override
@@ -59,9 +86,6 @@ public class Coverflow<T extends Adapter> extends AdapterView<T> {
 
       scroller.computeScrollOffset();
       int newScrollPos = scroller.getCurrX();
-      if (isVertical()) {
-        newScrollPos = scroller.getCurrY();
-      }
       scrollTo(newScrollPos);
       post(this);
     }
@@ -79,9 +103,6 @@ public class Coverflow<T extends Adapter> extends AdapterView<T> {
 
       centerScroller.computeScrollOffset();
       int newScrollPos = centerScroller.getCurrX();
-      if (isVertical()) {
-        newScrollPos = centerScroller.getCurrY();
-      }
       scrollTo(newScrollPos);
       post(this);
     }
@@ -92,39 +113,8 @@ public class Coverflow<T extends Adapter> extends AdapterView<T> {
 
     gestureDetector = new GestureDetector(context, new CustomGestureDetector());
     scroller = new Scroller(context);
-    centerScroller = new Scroller(context, new BounceInterpolator());
+    centerScroller = new Scroller(context, new OvershootInterpolator());
   }
-
-  private static final int DEF_ITEM_W = 200;
-  private static final int DEF_ITEM_H = 200;
-  private int itemWidth = DEF_ITEM_W;
-  private int itemHeight = DEF_ITEM_H;
-
-  public int getItemWidth() {
-    return itemWidth;
-  }
-
-  public void setItemWidth(int itemWidth) {
-    this.itemWidth = itemWidth;
-
-    clearView();
-    refresh();
-  }
-
-  public int getItemHeight() {
-    return itemHeight;
-  }
-
-  public void setItemHeight(int itemHeight) {
-    this.itemHeight = itemHeight;
-
-    clearView();
-    refresh();
-  }
-
-  private static final int ORIENTATION_HORIZONTAL = 0;
-  private static final int ORIENTATION_VERTICAL = 1;
-  private int orientation = ORIENTATION_HORIZONTAL;
 
   private boolean shouldOverrideTouchCapture = false;
 
@@ -142,28 +132,9 @@ public class Coverflow<T extends Adapter> extends AdapterView<T> {
     return shouldOverrideTouchCapture;
   }
 
-  private boolean isVertical() {
-    return orientation == ORIENTATION_VERTICAL;
-  }
+  private Adapter adapter;
 
-  public void setOrientation(int orientation) {
-    this.orientation = orientation;
-
-    if (isVertical()) {
-      touchBinder.setDirection(EventBinder.DIRECTION_Y);
-    } else {
-      touchBinder.setDirection(EventBinder.DIRECTION_X);
-    }
-  }
-
-  public int getOrientation() {
-    return orientation;
-  }
-
-  private T adapter;
-
-  @Override
-  public void setAdapter(T adapter) {
+  public void setAdapter(Adapter adapter) {
     this.adapter = adapter;
 
     if (this.adapter != null) {
@@ -177,6 +148,10 @@ public class Coverflow<T extends Adapter> extends AdapterView<T> {
     refreshVirtualItemCount();
     clearView();
     refresh();
+  }
+
+  public void setOnItemClickListener(CoverflowItemClickListener listener){
+    this.itemClickListener = listener;
   }
 
   private void clearView() {
@@ -199,11 +174,11 @@ public class Coverflow<T extends Adapter> extends AdapterView<T> {
 
     @Override
     public boolean onScroll(MotionEvent e1, MotionEvent e2, float distanceX, float distanceY) {
-      if (touchBinder.onScroll(-distanceX, -distanceY)) {
+      if (touchBinder.onScroll(-distanceX, 0)) {
         if (BuildConfig.DEBUG) {
           Log.d(TAG, "coverflow touch scroll dx: " + (-distanceX) + " dy: " + (-distanceY));
         }
-        scrollItemsBy(-Math.round(distanceX), -Math.round(distanceY));
+        scrollItemsBy(-Math.round(distanceX));
       }
       return true;
     }
@@ -221,10 +196,10 @@ public class Coverflow<T extends Adapter> extends AdapterView<T> {
 
       abortCentering();
       boolean startedAgain = scroller.isFinished();
-      scroller.fling(offset, offset,
-          Math.round(velocityX / SCALE), Math.round(velocityY / SCALE),
+      scroller.fling(offset, 0,
+          Math.round(velocityX / SCALE), 0,
           Integer.MIN_VALUE, Integer.MAX_VALUE,
-          Integer.MIN_VALUE, Integer.MAX_VALUE);
+          0, 0);
       if (startedAgain) {
         post(scrollRunner);
       }
@@ -238,10 +213,10 @@ public class Coverflow<T extends Adapter> extends AdapterView<T> {
     public boolean onSingleTapUp(MotionEvent e) {
       touchBinder.onUp();
 
-      if (adapter != null && itemCount > 0) {
+      if (itemClickListener != null && adapter != null && itemCount > 0) {
         View v = getView(centerItemIndex);
         int adapterIndex = centerItemIndex % itemCount;
-        performItemClick(v, adapterIndex, v.getId());
+        itemClickListener.onItemClick(Coverflow.this, v, adapterIndex, v.getId());
         return true;
       }
 
@@ -282,15 +257,12 @@ public class Coverflow<T extends Adapter> extends AdapterView<T> {
 
   private int offset = 0;
 
-  private void scrollItemsBy(int dx, int dy) {
+  private void scrollItemsBy(int dx) {
     if (!scroller.isFinished()) {
       return;
     }
 
     int diff = dx;
-    if (isVertical()) {
-      diff = dy;
-    }
 
     if (diff == 0) {
       return;
@@ -370,10 +342,7 @@ public class Coverflow<T extends Adapter> extends AdapterView<T> {
       return;
     }
 
-    float normalizedOffset = (float) offset / itemWidth;
-    if (isVertical()) {
-      normalizedOffset = (float) offset / itemHeight;
-    }
+    float normalizedOffset = (float) offset / SCROLL_SPEED;
     int roundedNormalizedOffset = Math.round(normalizedOffset);
     int currentCenter = Util.positiveMod(-roundedNormalizedOffset, virtualItemCount);
 
@@ -403,7 +372,7 @@ public class Coverflow<T extends Adapter> extends AdapterView<T> {
     transformer.transform(v, centerOffset);
   }
 
-  private static final int AUTOCENTER_ANIM_DURATION = 1000;
+  private static final int CENTER_ANIM_DURATION = 1000;
 
   private void abortCentering() {
     if (!centerScroller.isFinished()) {
@@ -412,29 +381,14 @@ public class Coverflow<T extends Adapter> extends AdapterView<T> {
   }
 
   private void stopScrolling() {
-    int centerOffset = offset - itemWidth * Math.round((float) offset / itemWidth);
-
-    if (isVertical()) {
-      centerOffset = offset -
-          itemHeight * Math.round((float) offset / itemHeight);
-    }
+    int centerOffset = Math.round(offset - SCROLL_SPEED * Math.round(((float) offset / SCROLL_SPEED)));
 
     abortCentering();
-    centerScroller.startScroll(offset, offset, -centerOffset, -centerOffset, AUTOCENTER_ANIM_DURATION);
+    centerScroller.startScroll(offset, 0, -centerOffset, 0, CENTER_ANIM_DURATION);
     post(centerRunner);
   }
 
-  @Override
-  public T getAdapter() {
+  public Adapter getAdapter() {
     return adapter;
-  }
-
-  @Override
-  public View getSelectedView() {
-    return null;
-  }
-
-  @Override
-  public void setSelection(int selection) {
   }
 }

@@ -101,7 +101,7 @@ public class CoverflowTransformer implements ICoverflowTransformer {
     view.setScaleY(scale);
   }
 
-  private int sideCount = 4;
+  private int sideCount = 5;
   
   public void setSideCount(int count){
     sideCount = count;
